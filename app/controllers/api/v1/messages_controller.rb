@@ -7,6 +7,7 @@ class Api::V1::MessagesController < ApplicationController
     limit = 50 if params[:limit].blank?
 
     messages = @conversation.messages
+                 .includes(:sender)
                              .order(created_at: :desc, id: :desc)
     messages = messages.where("created_at > ?", @participant.cleared_at) if @participant&.cleared_at
 
@@ -169,6 +170,7 @@ class Api::V1::MessagesController < ApplicationController
       id: message.id,
       conversationId: message.conversation_id,
       senderId: message.sender_id,
+      senderName: message.sender.name,
       text: message.text,
       createdAt: message.created_at.iso8601(3),
       status: "sent",
