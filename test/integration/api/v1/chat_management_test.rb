@@ -75,6 +75,61 @@ class Api::V1::ChatManagementTest < ActionDispatch::IntegrationTest
     assert_equal 1, Conversation.where(kind: "direct").count
   end
 
+  test "group conversations can add and remove members" do
+    third_user = User.create!(
+      name: "Third User",
+      email: "third@example.test",
+      password: "password123",
+      password_confirmation: "password123"
+    )
+    post "/api/v1/conversations",
+         params: { kind: "group", title: "Project", participantIds: [ @contact.id, third_user.id ] },
+         headers: auth_headers,
+         as: :json
+
+    assert_response :created
+    conversation_id = response.parsed_body.fetch("id")
+    assert_equal 3, response.parsed_body.fetch("participants").length
+
+    post "/api/v1/conversations/#{conversation_id}/participants",
+         params: { userId: "new-member-id" },
+         headers: auth_headers,
+         as: :json
+    assert_response :not_found
+
+    fourth_user = User.create!(
+      name: "Fourth User",
+      email: "fourth@example.test",
+      password: "password123",
+      password_confirmation: "password123"
+    )
+    post "/api/v1/conversations/#{conversation_id}/participants",
+         params: { userId: fourth_user.id },
+         headers: auth_headers,
+         as: :json
+
+    assert_response :created
+    assert Conversation.find(conversation_id).participants.exists?(id: fourth_user.id)
+
+    delete "/api/v1/conversations/#{conversation_id}/participants/#{fourth_user.id}", headers: auth_headers
+
+    assert_response :no_content
+    assert_not Conversation.find(conversation_id).participants.exists?(id: fourth_user.id)
+    get "/api/v1/conversations/#{conversation_id}/messages",
+        headers: { "Authorization" => "Bearer #{JwtService.encode(fourth_user.id)}" }
+    assert_response :forbidden
+  end
+
+  test "group conversations require at least three members" do
+    post "/api/v1/conversations",
+         params: { kind: "group", title: "Too small", participantIds: [ @contact.id ] },
+         headers: auth_headers,
+         as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "INVALID_PARTICIPANTS", response.parsed_body.dig("error", "code")
+  end
+
   test "creating a message broadcasts it to the conversation stream" do
     post "/api/v1/conversations",
          params: { kind: "direct", participantIds: [ @contact.id ] },

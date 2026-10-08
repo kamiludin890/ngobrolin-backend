@@ -19,6 +19,10 @@ Rails.application.routes.draw do
 
       resources :conversations,
           only: [ :index, :create, :update, :destroy ] do
+        resources :participants,
+                  only: [ :create, :destroy ],
+                  controller: :conversation_participants
+
         delete :messages,
                on: :member,
                to: "conversations#clear_messages"

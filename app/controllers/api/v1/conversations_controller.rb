@@ -75,6 +75,10 @@ class Api::V1::ConversationsController < ApplicationController
       return render_error("INVALID_PARTICIPANTS", "Direct conversation harus memiliki 2 peserta", :unprocessable_entity)
     end
 
+    if kind == "group" && participant_ids.length < 3
+      return render_error("INVALID_PARTICIPANTS", "Group conversation harus memiliki minimal 3 peserta", :unprocessable_entity)
+    end
+
     users = User.where(id: participant_ids)
     if users.count != participant_ids.length
       return render_error("USER_NOT_FOUND", "Salah satu user tidak ditemukan", :unprocessable_entity)
@@ -258,6 +262,14 @@ class Api::V1::ConversationsController < ApplicationController
       title: title_for(conversation),
       avatarUrl: conversation.avatar_url || serialized_avatar_url(other_participant),
       participantCount: conversation.participants.count,
+      participants: conversation.participants.order(:name).map do |member|
+        {
+          id: member.id,
+          name: member.name,
+          email: member.email,
+          avatarUrl: serialized_avatar_url(member)
+        }
+      end,
       isFavorite: participant&.is_favorite || false,
       unreadCount: unread_count,
       lastMessage: last_message && {
