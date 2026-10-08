@@ -128,6 +128,17 @@ class Api::V1::ConversationsController < ApplicationController
       .conversation_participants
       .find_by(conversation_id: @conversation.id)
 
+    if (params.keys & %w[title description avatar]).any? && @conversation.kind != "group"
+      return render_error("GROUP_REQUIRED", "Info hanya dapat diubah pada group conversation", :unprocessable_entity)
+    end
+
+    if params.key?(:title)
+      @conversation.title = params[:title].to_s.strip.presence || @conversation.title
+    end
+    @conversation.description = params[:description].to_s if params.key?(:description)
+    @conversation.avatar.attach(params[:avatar]) if params[:avatar].present?
+    @conversation.save! if (params.keys & %w[title description avatar]).any?
+
     if params.key?(:isFavorite)
       participant.update!(
         is_favorite: ActiveModel::Type::Boolean.new.cast(
@@ -136,7 +147,15 @@ class Api::V1::ConversationsController < ApplicationController
       )
     end
 
+    @conversation.participants.each do |member|
+      ActionCable.server.broadcast(
+        "user_#{member.id}",
+        { type: "conversation.updated", conversationId: @conversation.id }
+      )
+    end
     render json: serialize_conversation(@conversation)
+  rescue ActiveRecord::RecordInvalid => error
+    render_error("VALIDATION_ERROR", error.record.errors.full_messages.join(", "), :unprocessable_entity)
   end
 
   def destroy
@@ -260,7 +279,8 @@ class Api::V1::ConversationsController < ApplicationController
       id: conversation.id,
       kind: conversation.kind,
       title: title_for(conversation),
-      avatarUrl: conversation.avatar_url || serialized_avatar_url(other_participant),
+      description: conversation.description,
+      avatarUrl: (serialized_blob_url(conversation.avatar) if conversation.avatar.attached?) || conversation.avatar_url || serialized_avatar_url(other_participant),
       participantCount: conversation.participants.count,
       participants: conversation.participants.order(:name).map do |member|
         {

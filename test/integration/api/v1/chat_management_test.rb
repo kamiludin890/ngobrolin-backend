@@ -130,6 +130,69 @@ class Api::V1::ChatManagementTest < ActionDispatch::IntegrationTest
     assert_equal "INVALID_PARTICIPANTS", response.parsed_body.dig("error", "code")
   end
 
+  test "group members can update the group name description and avatar" do
+    third_user = User.create!(
+      name: "Third User",
+      email: "third@example.test",
+      password: "password123",
+      password_confirmation: "password123"
+    )
+    post "/api/v1/conversations",
+         params: { kind: "group", title: "Old title", participantIds: [ @contact.id, third_user.id ] },
+         headers: auth_headers,
+         as: :json
+    conversation_id = response.parsed_body.fetch("id")
+
+    Tempfile.create([ "group-avatar", ".png" ]) do |file|
+      file.binmode
+      file.write(Base64.decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="))
+      file.flush
+      avatar = Rack::Test::UploadedFile.new(file.path, "image/png", true)
+
+      patch "/api/v1/conversations/#{conversation_id}",
+            params: { title: "Updated group", description: "Project updates", avatar: avatar },
+            headers: auth_headers
+    end
+
+    assert_response :success
+    assert_equal "Updated group", response.parsed_body.fetch("title")
+    assert_equal "Project updates", response.parsed_body.fetch("description")
+    assert_match %r{\Ahttp://localhost:3001/rails/active_storage/}, response.parsed_body.fetch("avatarUrl")
+    conversation = Conversation.find(conversation_id)
+    assert_equal "Project updates", conversation.description
+    assert conversation.avatar.attached?
+  end
+
+  test "group description cannot exceed 2500 characters" do
+    third_user = User.create!(
+      name: "Third User",
+      email: "third@example.test",
+      password: "password123",
+      password_confirmation: "password123"
+    )
+    post "/api/v1/conversations",
+         params: { kind: "group", title: "Project", participantIds: [ @contact.id, third_user.id ] },
+         headers: auth_headers,
+         as: :json
+    conversation_id = response.parsed_body.fetch("id")
+
+        patch "/api/v1/conversations/#{conversation_id}",
+          params: { description: "a" * 2500 },
+          headers: auth_headers,
+          as: :json
+
+        assert_response :success
+        assert_equal 2500, Conversation.find(conversation_id).description.length
+
+    patch "/api/v1/conversations/#{conversation_id}",
+          params: { description: "a" * 2501 },
+          headers: auth_headers,
+          as: :json
+
+    assert_response :unprocessable_entity
+        assert_equal 2500, Conversation.find(conversation_id).description.length
+  end
+
   test "creating a message broadcasts it to the conversation stream" do
     post "/api/v1/conversations",
          params: { kind: "direct", participantIds: [ @contact.id ] },
