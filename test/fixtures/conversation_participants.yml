@@ -1,0 +1,13 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  conversation: one
+  user: one
+  is_favorite: false
+  last_read_message_id: 
+
+two:
+  conversation: two
+  user: two
+  is_favorite: false
+  last_read_message_id: 

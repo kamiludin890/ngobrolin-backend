@@ -1,0 +1,149 @@
+class Api::V1::MessagesController < ApplicationController
+  before_action :set_conversation
+  before_action :ensure_participant
+
+  def index
+    limit = [[params[:limit].to_i, 1].max, 100].min
+    limit = 50 if params[:limit].blank?
+
+    messages = @conversation.messages
+                             .order(created_at: :desc, id: :desc)
+
+    if params[:before].present?
+      cursor_message = @conversation.messages.find_by(
+        id: params[:before]
+      )
+
+      if cursor_message
+        messages = messages.where(
+          "created_at < ? OR (created_at = ? AND id < ?)",
+          cursor_message.created_at,
+          cursor_message.created_at,
+          cursor_message.id
+        )
+      end
+    end
+
+    records = messages.limit(limit + 1).to_a
+
+    has_more = records.length > limit
+    records = records.first(limit)
+
+    records.reverse!
+
+    render json: {
+      items: records.map { |message|
+        serialize_message(message)
+      },
+      nextCursor: has_more ? records.first&.id : nil
+    }
+  end
+
+  def create
+    client_message_id =
+      params[:clientMessageId].presence ||
+      request.headers["Idempotency-Key"].presence
+
+    text = params[:text].to_s.strip
+
+    if client_message_id.blank?
+      return render_error(
+        "CLIENT_MESSAGE_ID_REQUIRED",
+        "clientMessageId wajib diisi",
+        :unprocessable_entity
+      )
+    end
+
+    if text.blank?
+      return render_error(
+        "MESSAGE_EMPTY",
+        "Pesan tidak boleh kosong",
+        :unprocessable_entity
+      )
+    end
+
+    if text.length > 5000
+      return render_error(
+        "MESSAGE_TOO_LONG",
+        "Pesan maksimal 5000 karakter",
+        :unprocessable_entity
+      )
+    end
+
+    existing = @conversation.messages.find_by(
+      client_message_id: client_message_id
+    )
+
+    if existing
+      return render json: serialize_message(existing)
+    end
+
+    message = @conversation.messages.create!(
+      sender: current_user,
+      client_message_id: client_message_id,
+      text: text
+    )
+
+    payload = {
+      type: "message.created",
+      conversationId: @conversation.id,
+      message: serialize_message(message)
+    }
+
+    ActionCable.server.broadcast(
+      "conversation_#{@conversation.id}",
+      payload
+    )
+
+    render json: serialize_message(message),
+           status: :created
+
+  rescue ActiveRecord::RecordNotUnique
+    existing = @conversation.messages.find_by!(
+      client_message_id: client_message_id
+    )
+
+    render json: serialize_message(existing)
+  end
+
+  private
+
+  def set_conversation
+    @conversation = Conversation.find_by(id: params[:conversation_id])
+
+    unless @conversation
+      return render_error(
+        "CONVERSATION_NOT_FOUND",
+        "Conversation tidak ditemukan",
+        :not_found
+      )
+    end
+  end
+
+  def ensure_participant
+    return unless @conversation
+
+    participant = current_user
+      .conversation_participants
+      .find_by(conversation_id: @conversation.id)
+
+    return if participant
+
+    render_error(
+      "FORBIDDEN",
+      "Anda bukan anggota conversation ini",
+      :forbidden
+    )
+  end
+
+  def serialize_message(message)
+    {
+      id: message.id,
+      conversationId: message.conversation_id,
+      senderId: message.sender_id,
+      text: message.text,
+      createdAt: message.created_at.iso8601(3),
+      status: "sent"
+    }
+  end
+end
