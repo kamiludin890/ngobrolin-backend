@@ -1,9 +1,9 @@
 class Api::V1::ConversationsController < ApplicationController
   before_action :set_conversation,
-                only: [:update, :read]
+                only: [ :update, :read ]
 
   before_action :ensure_participant,
-                only: [:update, :read]
+                only: [ :update, :read ]
 
   def index
     conversations = current_user.conversations
@@ -41,7 +41,7 @@ class Api::V1::ConversationsController < ApplicationController
       conversation.messages.maximum(:created_at) || conversation.created_at
     end.reverse
 
-    limit = [[params[:limit].to_i, 1].max, 100].min
+    limit = [ [ params[:limit].to_i, 1 ].max, 100 ].min
     limit = 30 if params[:limit].blank?
 
     items = conversations.first(limit)
@@ -53,6 +53,53 @@ class Api::V1::ConversationsController < ApplicationController
       },
       nextCursor: nil
     }
+  end
+
+  def create
+    kind = params[:kind].presence || "direct"
+    participant_ids = Array(params[:participantIds])
+      .map(&:to_s)
+      .reject(&:blank?)
+      .push(current_user.id.to_s)
+      .uniq
+
+    unless %w[direct group].include?(kind)
+      return render_error("INVALID_KIND", "Jenis conversation tidak valid", :unprocessable_entity)
+    end
+
+    if kind == "direct" && participant_ids.length != 2
+      return render_error("INVALID_PARTICIPANTS", "Direct conversation harus memiliki 2 peserta", :unprocessable_entity)
+    end
+
+    users = User.where(id: participant_ids)
+    if users.count != participant_ids.length
+      return render_error("USER_NOT_FOUND", "Salah satu user tidak ditemukan", :unprocessable_entity)
+    end
+
+    if kind == "direct"
+      existing = Conversation.joins(:conversation_participants)
+        .where(kind: kind, conversation_participants: { user_id: participant_ids })
+        .group("conversations.id")
+        .having("COUNT(DISTINCT conversation_participants.user_id) = ?", participant_ids.length)
+        .first
+      return render json: serialize_conversation(existing) if existing
+    end
+
+    conversation = Conversation.transaction do
+      record = Conversation.create!(
+        kind: kind,
+        title: params[:title].presence,
+        avatar_url: params[:avatarUrl].presence
+      )
+      participant_ids.each do |user_id|
+        record.conversation_participants.create!(user_id: user_id)
+      end
+      record
+    end
+
+    render json: serialize_conversation(conversation), status: :created
+  rescue ActiveRecord::RecordInvalid => error
+    render_error("VALIDATION_ERROR", error.record.errors.full_messages.join(", "), :unprocessable_entity)
   end
 
   def update

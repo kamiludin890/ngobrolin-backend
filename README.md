@@ -27,14 +27,14 @@ Backend REST API untuk autentikasi pengguna dan percakapan chat, dibuat dengan R
 
 	 Jangan masukkan secret produksi ke repository.
 
-4. Siapkan database dan jalankan server:
+4. Siapkan database dan jalankan server di port `3001` agar tidak bentrok dengan frontend Next.js pada port `3000`:
 
 	 ```sh
 	 bin/rails db:prepare
-	 bin/dev
+	 PORT=3001 bin/rails server
 	 ```
 
-	 Alternatifnya, `bin/setup --skip-server` memasang dependensi, menyiapkan database, serta membersihkan log dan temporary files. Default server berjalan di `http://localhost:3000`.
+	 Alternatifnya, `bin/setup --skip-server` memasang dependensi, menyiapkan database, serta membersihkan log dan temporary files. Frontend menggunakan API di `http://localhost:3001/api/v1`.
 
 Untuk menjalankan test:
 
@@ -44,7 +44,7 @@ bin/rails test
 
 ## Konvensi API
 
-- Base URL lokal: `http://localhost:3000/api/v1`
+- Base URL lokal untuk frontend: `http://localhost:3001/api/v1`
 - Request dan response menggunakan JSON.
 - Kirim `Content-Type: application/json` untuk request dengan body.
 - Semua endpoint kecuali register dan login membutuhkan header `Authorization: Bearer <accessToken>`.
@@ -118,6 +118,14 @@ Response:
 }
 ```
 
+### Pencarian kontak
+
+`GET /users?search={nama-atau-email}` mengembalikan maksimal 50 user selain pengguna yang sedang login. Pencarian memakai PostgreSQL `ILIKE`.
+
+### Ubah profil
+
+`PATCH /auth/profile` menerima `name` dan `email`; validasi user disimpan ke tabel PostgreSQL `users`.
+
 ## Percakapan
 
 ### Daftar percakapan
@@ -138,7 +146,7 @@ Catatan implementasi: filter `unread` saat ini memilih percakapan yang memiliki 
 
 ### Membuat percakapan
 
-Route `POST /conversations` sudah terdaftar, tetapi saat ini tidak tersedia sebagai aksi `create` pada `ConversationsController`. Karena itu endpoint ini belum dapat digunakan dengan benar.
+`POST /conversations` menerima `kind` dan `participantIds`. Untuk `direct`, kirim UUID user tujuan; user login otomatis ditambahkan. Conversation dan participant disimpan dalam transaksi PostgreSQL. Direct conversation yang sudah ada akan dikembalikan agar tidak terduplikasi.
 
 ### Mengubah favorit
 

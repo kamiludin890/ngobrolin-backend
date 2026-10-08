@@ -1,6 +1,6 @@
 class Api::V1::AuthController < ApplicationController
   skip_before_action :authenticate_user!,
-                     only: [:register, :login]
+                     only: [ :register, :login ]
 
   def register
     user = User.new(user_params)
@@ -50,6 +50,21 @@ class Api::V1::AuthController < ApplicationController
     }
   end
 
+  def update_profile
+    if current_user.update(profile_params)
+      render json: {
+        user: serialize_user(current_user)
+      }
+    else
+      render json: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: current_user.errors.full_messages.join(", ")
+        }
+      }, status: :unprocessable_entity
+    end
+  end
+
   private
 
   def user_params
@@ -59,6 +74,10 @@ class Api::V1::AuthController < ApplicationController
       :password,
       :password_confirmation
     )
+  end
+
+  def profile_params
+    params.permit(:name, :email)
   end
 
   def serialize_user(user)

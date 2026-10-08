@@ -11,6 +11,12 @@ Rails.application.routes.draw do
       get "auth/me",
           to: "auth#me"
 
+      patch "auth/profile",
+        to: "auth#update_profile"
+
+      resources :users,
+            only: [:index]
+
       resources :conversations,
                 only: [:index, :create, :update] do
 
