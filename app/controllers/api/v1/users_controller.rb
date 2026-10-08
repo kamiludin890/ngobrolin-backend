@@ -13,7 +13,8 @@ class Api::V1::UsersController < ApplicationController
         {
           id: user.id,
           name: user.name,
-          email: user.email
+          email: user.email,
+          avatarUrl: serialized_avatar_url(user)
         }
       end
     }

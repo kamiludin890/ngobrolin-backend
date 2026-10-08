@@ -124,7 +124,7 @@ Response:
 
 ### Ubah profil
 
-`PATCH /auth/profile` menerima `name` dan `email`; validasi user disimpan ke tabel PostgreSQL `users`.
+`PATCH /auth/profile` menerima `name` dan `email` melalui multipart form. Field `avatar` opsional menerima JPEG, PNG, atau WebP sampai 5 MB. Attachment menggunakan Active Storage: blob dan metadata tersimpan di PostgreSQL, sementara file disimpan memakai service lokal pada development. URL foto dikembalikan sebagai `avatarUrl`.
 
 ## Percakapan
 
@@ -146,7 +146,7 @@ Catatan implementasi: filter `unread` saat ini memilih percakapan yang memiliki 
 
 ### Membuat percakapan
 
-`POST /conversations` menerima `kind` dan `participantIds`. Untuk `direct`, kirim UUID user tujuan; user login otomatis ditambahkan. Conversation dan participant disimpan dalam transaksi PostgreSQL. Direct conversation yang sudah ada akan dikembalikan agar tidak terduplikasi.
+`POST /conversations` menerima `kind` dan `participantIds`. Untuk `direct`, kirim UUID user tujuan; user login otomatis ditambahkan. Conversation dan participant disimpan dalam transaksi PostgreSQL. Direct conversation yang sudah ada akan dikembalikan agar tidak terduplikasi; event `conversation.created` dikirim ke Action Cable tiap peserta.
 
 ### Mengubah favorit
 

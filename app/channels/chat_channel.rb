@@ -6,7 +6,7 @@ class ChatChannel < ApplicationCable::Channel
       id: conversation_id
     )
 
-    reject unless conversation
+    return reject unless conversation
 
     stream_from "conversation_#{conversation.id}"
   end

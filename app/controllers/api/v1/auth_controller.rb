@@ -51,7 +51,10 @@ class Api::V1::AuthController < ApplicationController
   end
 
   def update_profile
-    if current_user.update(profile_params)
+    current_user.assign_attributes(profile_params)
+    current_user.avatar.attach(params[:avatar]) if params[:avatar].present?
+
+    if current_user.save
       render json: {
         user: serialize_user(current_user)
       }
@@ -84,7 +87,8 @@ class Api::V1::AuthController < ApplicationController
     {
       id: user.id,
       name: user.name,
-      email: user.email
+      email: user.email,
+      avatarUrl: serialized_avatar_url(user)
     }
   end
 end

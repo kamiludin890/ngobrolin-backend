@@ -97,6 +97,16 @@ class Api::V1::ConversationsController < ApplicationController
       record
     end
 
+    conversation.participants.each do |participant|
+      ActionCable.server.broadcast(
+        "user_#{participant.id}",
+        {
+          type: "conversation.created",
+          conversationId: conversation.id
+        }
+      )
+    end
+
     render json: serialize_conversation(conversation), status: :created
   rescue ActiveRecord::RecordInvalid => error
     render_error("VALIDATION_ERROR", error.record.errors.full_messages.join(", "), :unprocessable_entity)
@@ -206,6 +216,8 @@ class Api::V1::ConversationsController < ApplicationController
       .order(created_at: :desc)
       .first
 
+    other_participant = conversation.kind == "direct" ? conversation.participants.where.not(id: current_user.id).first : nil
+
     unread_count = unread_count(
       conversation,
       participant
@@ -215,7 +227,7 @@ class Api::V1::ConversationsController < ApplicationController
       id: conversation.id,
       kind: conversation.kind,
       title: title_for(conversation),
-      avatarUrl: conversation.avatar_url,
+      avatarUrl: conversation.avatar_url || serialized_avatar_url(other_participant),
       participantCount: conversation.participants.count,
       isFavorite: participant&.is_favorite || false,
       unreadCount: unread_count,

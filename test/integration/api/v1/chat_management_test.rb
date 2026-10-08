@@ -1,6 +1,9 @@
 require "test_helper"
+require "base64"
 
 class Api::V1::ChatManagementTest < ActionDispatch::IntegrationTest
+  include ActionCable::TestHelper
+
   self.fixture_table_names = []
 
   setup do
@@ -38,6 +41,23 @@ class Api::V1::ChatManagementTest < ActionDispatch::IntegrationTest
     assert_equal "updated@example.test", @user.email
   end
 
+  test "profile update attaches an image and returns its URL" do
+    Tempfile.create([ "avatar", ".png" ]) do |file|
+      file.binmode
+      file.write(Base64.decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="))
+      file.flush
+
+      image = Rack::Test::UploadedFile.new(file.path, "image/png", true)
+      patch "/api/v1/auth/profile",
+            params: { avatar: image },
+            headers: auth_headers
+    end
+
+    assert_response :success
+    assert @user.reload.avatar.attached?
+    assert_match %r{\Ahttp://localhost:3001/rails/active_storage/}, response.parsed_body.dig("user", "avatarUrl")
+  end
+
   test "creating a direct conversation persists both participants and reuses it" do
     request_params = { kind: "direct", participantIds: [ @contact.id ] }
 
@@ -53,6 +73,23 @@ class Api::V1::ChatManagementTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal conversation_id, response.parsed_body.fetch("id")
     assert_equal 1, Conversation.where(kind: "direct").count
+  end
+
+  test "creating a message broadcasts it to the conversation stream" do
+    post "/api/v1/conversations",
+         params: { kind: "direct", participantIds: [ @contact.id ] },
+         headers: auth_headers,
+         as: :json
+    conversation_id = response.parsed_body.fetch("id")
+
+    assert_broadcasts("conversation_#{conversation_id}", 1) do
+      post "/api/v1/conversations/#{conversation_id}/messages",
+           params: { clientMessageId: "message-1", text: "Realtime test" },
+           headers: auth_headers,
+           as: :json
+    end
+
+    assert_response :created
   end
 
   private

@@ -45,4 +45,16 @@ class ApplicationController < ActionController::API
       }
     }, status: status
   end
+
+  def serialized_avatar_url(user)
+    return nil unless user&.avatar&.attached?
+
+    base_url = URI.parse(ENV.fetch("BACKEND_URL", "http://localhost:3001"))
+    Rails.application.routes.url_helpers.rails_blob_url(
+      user.avatar,
+      host: base_url.host,
+      port: base_url.port,
+      protocol: base_url.scheme
+    )
+  end
 end
