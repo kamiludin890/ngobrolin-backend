@@ -15,13 +15,16 @@ Rails.application.routes.draw do
         to: "auth#update_profile"
 
       resources :users,
-            only: [:index]
+            only: [ :index ]
 
       resources :conversations,
-                only: [:index, :create, :update] do
+          only: [ :index, :create, :update, :destroy ] do
+        delete :messages,
+               on: :member,
+               to: "conversations#clear_messages"
 
         resources :messages,
-                  only: [:index, :create]
+                  only: [ :index, :create ]
 
         post :read,
              on: :member,

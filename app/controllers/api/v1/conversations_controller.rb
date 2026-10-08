@@ -1,12 +1,15 @@
 class Api::V1::ConversationsController < ApplicationController
   before_action :set_conversation,
-                only: [ :update, :read ]
+                only: [ :update, :read, :destroy, :clear_messages ]
 
   before_action :ensure_participant,
-                only: [ :update, :read ]
+                only: [ :update, :read, :destroy, :clear_messages ]
 
   def index
     conversations = current_user.conversations
+                                .where(id: current_user.conversation_participants
+                                                          .where(hidden_at: nil)
+                                                          .select(:conversation_id))
                                 .includes(
                                   :participants,
                                   :messages
@@ -23,10 +26,11 @@ class Api::V1::ConversationsController < ApplicationController
                         .select(:conversation_id)
       )
     when "favorite"
-      conversations = current_user.conversation_participants
-                                  .where(is_favorite: true)
-                                  .includes(:conversation)
-                                  .map(&:conversation)
+      conversations = conversations.where(
+        id: current_user.conversation_participants
+                        .where(is_favorite: true)
+                        .select(:conversation_id)
+      )
     end
 
     if search.present?
@@ -82,7 +86,10 @@ class Api::V1::ConversationsController < ApplicationController
         .group("conversations.id")
         .having("COUNT(DISTINCT conversation_participants.user_id) = ?", participant_ids.length)
         .first
-      return render json: serialize_conversation(existing) if existing
+      if existing
+        existing.conversation_participants.find_by!(user_id: current_user.id).update!(hidden_at: nil)
+        return render json: serialize_conversation(existing)
+      end
     end
 
     conversation = Conversation.transaction do
@@ -126,6 +133,27 @@ class Api::V1::ConversationsController < ApplicationController
     end
 
     render json: serialize_conversation(@conversation)
+  end
+
+  def destroy
+    participant = current_user.conversation_participants.find_by!(conversation_id: @conversation.id)
+    participant.update!(hidden_at: Time.current)
+    ActionCable.server.broadcast(
+      "user_#{current_user.id}",
+      { type: "conversation.hidden", conversationId: @conversation.id }
+    )
+    head :no_content
+  end
+
+  def clear_messages
+    participant = current_user.conversation_participants.find_by!(conversation_id: @conversation.id)
+    latest_message = @conversation.messages.order(created_at: :desc, id: :desc).first
+    participant.update!(cleared_at: Time.current, last_read_message_id: nil)
+    ActionCable.server.broadcast(
+      "user_#{current_user.id}",
+      { type: "conversation.cleared", conversationId: @conversation.id }
+    )
+    head :no_content
   end
 
   def read
@@ -211,8 +239,9 @@ class Api::V1::ConversationsController < ApplicationController
       .conversation_participants
       .find_by(user_id: current_user.id)
 
-    last_message = conversation
-      .messages
+    messages = conversation.messages
+    messages = messages.where("created_at > ?", participant.cleared_at) if participant&.cleared_at
+    last_message = messages
       .order(created_at: :desc)
       .first
 
@@ -244,6 +273,7 @@ class Api::V1::ConversationsController < ApplicationController
     return 0 unless participant
 
     messages = conversation.messages
+    messages = messages.where("created_at > ?", participant.cleared_at) if participant.cleared_at
 
     if participant.last_read_message_id.blank?
       return messages.where.not(

@@ -142,7 +142,7 @@ Query opsional:
 
 Response berisi `items` dan `nextCursor`. Saat ini `nextCursor` selalu `null`, sehingga endpoint ini belum menyediakan pagination cursor. Objek percakapan mencakup `id`, `kind`, `title`, `avatarUrl`, `participantCount`, `isFavorite`, `unreadCount`, dan `lastMessage`.
 
-Catatan implementasi: filter `unread` saat ini memilih percakapan yang memiliki `last_read_message_id`, bukan menghitung apakah benar-benar ada pesan belum dibaca. Perilaku ini perlu diperbaiki bila filter tersebut digunakan oleh client.
+Filter favorit/unread dibatasi lewat PostgreSQL. Pencarian judul memeriksa hasil percakapan milik user; riwayat yang sudah dibersihkan untuk satu participant tidak ditampilkan untuk akun tersebut, sementara peserta lain tetap melihat pesan.
 
 ### Membuat percakapan
 
@@ -159,6 +159,12 @@ Catatan implementasi: filter `unread` saat ini memilih percakapan yang memiliki 
 ```
 
 Response berupa objek percakapan yang diperbarui. Pengguna harus menjadi peserta percakapan.
+
+`DELETE /conversations/:id` menyembunyikan percakapan hanya bagi participant yang login. Pesan baru dapat memunculkannya kembali. `DELETE /conversations/:id/messages` membersihkan riwayat dan unread state hanya untuk participant tersebut, tanpa menghapus pesan dari peserta lain.
+
+### Search dalam chat
+
+`GET /conversations/:conversation_id/messages?search={teks}` mencari teks pesan dengan PostgreSQL `ILIKE`, hanya dalam conversation dan riwayat yang terlihat bagi user.
 
 ### Menandai pesan sudah dibaca
 
@@ -178,7 +184,7 @@ Pesan harus berada dalam percakapan tersebut. Response sukses memuat `success`, 
 
 `GET /conversations/:conversation_id/messages`
 
-Query opsional `limit` default `50` dengan maksimum `100`, dan `before` berisi ID pesan untuk mengambil halaman yang lebih lama.
+Query opsional `limit` default `50` dengan maksimum `100`, `before` berisi ID pesan untuk mengambil pesan lama, dan `search` untuk mencari teks.
 
 Response berbentuk `{ "items": [...], "nextCursor": "<uuid-atau-null>" }`. Item memuat `id`, `conversationId`, `senderId`, `text`, `createdAt`, dan `status` (`sent`). Pesan pada tiap halaman dikembalikan dari yang lebih lama ke yang lebih baru.
 
@@ -193,7 +199,9 @@ Response berbentuk `{ "items": [...], "nextCursor": "<uuid-atau-null>" }`. Item 
 }
 ```
 
-`clientMessageId` wajib diisi dan unik dalam satu percakapan. Sebagai alternatif, ID dapat dikirim melalui header `Idempotency-Key`. Mengirim ulang ID yang sama mengembalikan pesan yang sudah dibuat tanpa membuat duplikat. Teks tidak boleh kosong dan maksimum 5000 karakter.
+`clientMessageId` wajib diisi dan unik dalam satu percakapan. Sebagai alternatif, ID dapat dikirim melalui header `Idempotency-Key`. Mengirim ulang ID yang sama mengembalikan pesan yang sudah dibuat tanpa membuat duplikat. Teks maksimum 5000 karakter; pesan boleh hanya berisi lampiran.
+
+Request menerima JSON untuk pesan teks atau multipart form dengan field `clientMessageId`, `text`, dan `attachments[]`. Maksimal 5 file dari client, ukuran server 20 MB per file, tipe yang diterima JPEG/PNG/WebP/GIF, MP4/WebM, PDF, dan teks biasa. Gambar/video dapat dipreview client; file lain dikembalikan sebagai tautan unduh. Blob disimpan melalui Active Storage dan metadata di PostgreSQL.
 
 Response sukses pertama kali adalah `201 Created`, dengan objek pesan. Pesan baru juga memancarkan event Action Cable `message.created`.
 

@@ -57,4 +57,14 @@ class ApplicationController < ActionController::API
       protocol: base_url.scheme
     )
   end
+
+  def serialized_blob_url(attachment)
+    base_url = URI.parse(ENV.fetch("BACKEND_URL", "http://localhost:3001"))
+    Rails.application.routes.url_helpers.rails_blob_url(
+      attachment,
+      host: base_url.host,
+      port: base_url.port,
+      protocol: base_url.scheme
+    )
+  end
 end

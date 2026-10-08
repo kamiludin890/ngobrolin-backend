@@ -3,11 +3,20 @@ class Api::V1::MessagesController < ApplicationController
   before_action :ensure_participant
 
   def index
-    limit = [[params[:limit].to_i, 1].max, 100].min
+    limit = [ [ params[:limit].to_i, 1 ].max, 100 ].min
     limit = 50 if params[:limit].blank?
 
     messages = @conversation.messages
                              .order(created_at: :desc, id: :desc)
+    messages = messages.where("created_at > ?", @participant.cleared_at) if @participant&.cleared_at
+
+    search = params[:search].to_s.strip
+    if search.present?
+      messages = messages.where(
+        "text ILIKE ?",
+        "%#{Message.sanitize_sql_like(search)}%"
+      )
+    end
 
     if params[:before].present?
       cursor_message = @conversation.messages.find_by(
@@ -54,7 +63,8 @@ class Api::V1::MessagesController < ApplicationController
       )
     end
 
-    if text.blank?
+    uploads = Array(params[:attachments]).reject(&:blank?)
+    if text.blank? && uploads.empty?
       return render_error(
         "MESSAGE_EMPTY",
         "Pesan tidak boleh kosong",
@@ -78,11 +88,17 @@ class Api::V1::MessagesController < ApplicationController
       return render json: serialize_message(existing)
     end
 
-    message = @conversation.messages.create!(
+    message = @conversation.messages.build(
       sender: current_user,
       client_message_id: client_message_id,
       text: text
     )
+    message.attachments.attach(uploads) if uploads.any?
+    message.save!
+
+    @conversation.conversation_participants
+           .where.not(hidden_at: nil)
+           .update_all(hidden_at: nil, updated_at: Time.current)
 
     payload = {
       type: "message.created",
@@ -95,9 +111,18 @@ class Api::V1::MessagesController < ApplicationController
       payload
     )
 
+    @conversation.participants.each do |participant|
+      ActionCable.server.broadcast(
+        "user_#{participant.id}",
+        { type: "conversation.created", conversationId: @conversation.id }
+      )
+    end
+
     render json: serialize_message(message),
            status: :created
 
+  rescue ActiveRecord::RecordInvalid => error
+    render_error("VALIDATION_ERROR", error.record.errors.full_messages.join(", "), :unprocessable_entity)
   rescue ActiveRecord::RecordNotUnique
     existing = @conversation.messages.find_by!(
       client_message_id: client_message_id
@@ -112,7 +137,7 @@ class Api::V1::MessagesController < ApplicationController
     @conversation = Conversation.find_by(id: params[:conversation_id])
 
     unless @conversation
-      return render_error(
+      render_error(
         "CONVERSATION_NOT_FOUND",
         "Conversation tidak ditemukan",
         :not_found
@@ -127,7 +152,10 @@ class Api::V1::MessagesController < ApplicationController
       .conversation_participants
       .find_by(conversation_id: @conversation.id)
 
-    return if participant
+    if participant
+      @participant = participant
+      return
+    end
 
     render_error(
       "FORBIDDEN",
@@ -143,7 +171,16 @@ class Api::V1::MessagesController < ApplicationController
       senderId: message.sender_id,
       text: message.text,
       createdAt: message.created_at.iso8601(3),
-      status: "sent"
+      status: "sent",
+      attachments: message.attachments.map do |attachment|
+        {
+          id: attachment.id,
+          filename: attachment.filename.to_s,
+          contentType: attachment.content_type,
+          byteSize: attachment.byte_size,
+          url: serialized_blob_url(attachment)
+        }
+      end
     }
   end
 end

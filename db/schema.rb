@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_08_012142) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_08_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -49,8 +49,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_08_012142) do
     t.uuid "last_read_message_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "hidden_at"
+    t.datetime "cleared_at"
     t.index ["conversation_id", "user_id"], name: "index_conversation_participants_unique", unique: true
     t.index ["conversation_id"], name: "index_conversation_participants_on_conversation_id"
+    t.index ["hidden_at"], name: "index_conversation_participants_on_hidden_at"
     t.index ["last_read_message_id"], name: "index_conversation_participants_on_last_read_message_id"
     t.index ["user_id"], name: "index_conversation_participants_on_user_id"
   end
