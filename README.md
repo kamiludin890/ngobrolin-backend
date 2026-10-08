@@ -1,225 +1,100 @@
-# Chat Backend
+# Ngobrolin Backend
 
-Backend REST API untuk autentikasi pengguna dan percakapan chat, dibuat dengan Ruby on Rails dan PostgreSQL. API menggunakan JSON, UUID, JWT, dan Action Cable untuk event real-time.
+API chat berbasis Ruby on Rails API-only, PostgreSQL, JWT, Active Storage, dan Action Cable. Frontend Next.js berjalan terpisah. Panduan pengguna dan spesifikasi gabungan tersedia di dokumen `Ngobrolin-Panduan-Teknis.docx` pada direktori induk `Code`.
 
-## Persyaratan
+## Spesifikasi dan Kebutuhan
 
-- Ruby yang kompatibel dengan Rails `~> 8.1.4`
-- Bundler
-- PostgreSQL
+- Ruby `3.4.11` (lihat `.ruby-version`), Bundler, Rails `8.1.4`.
+- PostgreSQL; database development default `chat_backend_development`.
+- Node.js 20.9+ dan npm hanya diperlukan untuk menjalankan frontend.
+- API lokal `http://localhost:3001/api/v1`; Action Cable `ws://localhost:3001/cable`.
+- ID tabel utama UUID. Request/response API JSON kecuali upload multipart. Timestamps ISO 8601.
 
-## Menjalankan secara lokal
+## Setup Lokal
 
-1. Instal dependensi Ruby:
+1. Pastikan service PostgreSQL berjalan dan siapkan role/database untuk development. Dengan konfigurasi bawaan Rails memakai user OS lewat Unix socket. Untuk koneksi TCP/TablePlus, lihat bagian [Koneksi TablePlus](#koneksi-tableplus).
+2. Dari `backend`, instal gem: `bundle install`.
+3. Atur secret JWT melalui Rails credentials. Jalankan `bin/rails credentials:edit`, lalu pastikan ada nilai:
 
-	 ```sh
-	 bundle install
-	 ```
+   ```yaml
+   jwt:
+     secret: gunakan-random-secret-yang-panjang
+   ```
 
-2. Pastikan PostgreSQL berjalan. Database development bernama `chat_backend_development`; sesuaikan `config/database.yml` atau atur `DATABASE_URL` bila konfigurasi lokal berbeda.
+   Credentials terenkripsi memerlukan `config/master.key` lokal atau `RAILS_MASTER_KEY`. Jangan commit key/master secret.
+4. Siapkan schema: `bin/rails db:prepare`.
+5. Jalankan API di port `3001`: `PORT=3001 bin/rails server`.
+6. Di terminal lain, jalankan frontend pada port `3000`. CORS dan Action Cable development mengizinkan origin `http://localhost:3000`.
 
-3. Atur secret JWT melalui Rails credentials. Jalankan `bin/rails credentials:edit`, lalu tambahkan:
+Alternatif bootstrap dependency dan DB: `bin/setup --skip-server`. Test: `bin/rails test`. Lint Ruby: `bin/rubocop`. CI lengkap: `bin/ci` (memerlukan konfigurasi test database/secret yang valid).
 
-	 ```yaml
-	 jwt:
-		 secret: secret-random-yang-panjang
-	 ```
+Jangan menjalankan `bin/rails db:seed` pada database berisi data yang ingin dipertahankan: `db/seeds.rb` menjalankan `User.destroy_all` dan `Conversation.destroy_all`. Seed membuat akun contoh `kamil@example.com` dan `nadia@example.com` dengan password demo `Kamil890` dan `Nadia890`; gunakan hanya pada database lokal sementara.
 
-	 Jangan masukkan secret produksi ke repository.
+## Struktur Folder
 
-4. Siapkan database dan jalankan server di port `3001` agar tidak bentrok dengan frontend Next.js pada port `3000`:
-
-	 ```sh
-	 bin/rails db:prepare
-	 PORT=3001 bin/rails server
-	 ```
-
-	 Alternatifnya, `bin/setup --skip-server` memasang dependensi, menyiapkan database, serta membersihkan log dan temporary files. Frontend menggunakan API di `http://localhost:3001/api/v1`.
-
-Untuk menjalankan test:
-
-```sh
-bin/rails test
+```text
+app/controllers/api/v1/  Endpoint REST dan serialisasi response
+app/controllers/         Autentikasi Bearer serta helper response/error
+app/models/              User, Conversation, Message, dan relasi participant
+app/channels/            ChatChannel, UserChannel, PresenceChannel, koneksi token
+app/services/jwt_service.rb Membuat dan memvalidasi JWT
+config/                  Routes, database, CORS, storage, cable, environment
+db/migrate/              Perubahan schema, satu migration per perubahan
+db/schema.rb             Schema hasil generate; jangan edit manual
+db/seeds.rb              Data demo lokal; destruktif terhadap user/conversation
+storage/                 File upload Active Storage saat development
+test/                    Test model dan integration API
+bin/                     Wrapper Rails, setup, test, audit, lint, CI
 ```
 
-## Konvensi API
+Untuk mengubah endpoint, mulai dari `config/routes.rb`, lalu controller `app/controllers/api/v1/`, model/validasi yang berkaitan, dan integration test. Untuk schema, buat migration lalu jalankan `bin/rails db:migrate`; Rails memperbarui `db/schema.rb`.
 
-- Base URL lokal untuk frontend: `http://localhost:3001/api/v1`
-- Request dan response menggunakan JSON.
-- Kirim `Content-Type: application/json` untuk request dengan body.
-- Semua endpoint kecuali register dan login membutuhkan header `Authorization: Bearer <accessToken>`.
-- Token berlaku selama 7 hari.
-- Waktu pada response menggunakan ISO 8601.
-- Error memiliki bentuk `{ "error": { "code": "...", "message": "..." } }`.
+## Database PostgreSQL dan TablePlus
 
-Contoh header:
+Tabel utama: `users` menyimpan email dan `password_digest`; `conversations` menyimpan jenis/judul/deskripsi; `conversation_participants` menyimpan keanggotaan, favorit, read marker, dan hide/clear per akun; `messages` menyimpan teks, sender, dan kunci idempotensi. Tabel `active_storage_blobs`/`active_storage_attachments` menyimpan metadata file. Blob aktual tidak berada di kolom PostgreSQL: development menyimpannya di `backend/storage`.
 
-```http
-Authorization: Bearer <accessToken>
-Content-Type: application/json
+Konfigurasi project di `config/database.yml` menggunakan host/username/password default libpq (Unix socket dan user OS lokal). Agar TablePlus dapat masuk via TCP, buat role development khusus pada server PostgreSQL, lalu set kredensial yang sama pada TablePlus dan Rails. Contoh untuk instalasi lokal baru:
+
+```sql
+CREATE ROLE ngobrolin_dev LOGIN CREATEDB PASSWORD 'ganti-dengan-password-lokal';
 ```
 
-## Autentikasi
+Isi koneksi TablePlus: driver PostgreSQL, Host `127.0.0.1`, Port `5432`, User `ngobrolin_dev`, Password yang dibuat di atas, Database `chat_backend_development`. Pilih **Test** lalu **Connect**. Di Rails, konfigurasikan `DATABASE_URL` ke `postgres://ngobrolin_dev:<password>@127.0.0.1:5432/chat_backend_development`, atau isi `username`, `password`, `host: 127.0.0.1`, dan `port: 5432` pada konfigurasi development lokal. Jangan commit password ke repository. `CREATEDB` diperlukan jika role akan menyiapkan database test juga.
 
-### Daftar
+Pada instalasi yang sudah berisi database, jangan mengubah owner/role tanpa memeriksa hak akses terlebih dahulu. TablePlus hanya dipakai untuk inspeksi/query tabel; jangan mengedit metadata Active Storage secara manual. Database test bernama `chat_backend_test`; jangan pernah arahkan TablePlus atau Rails test ke database development.
 
-`POST /auth/register`
+## Kontrak API
 
-```json
-{
-	"name": "Ayu",
-	"email": "ayu@example.com",
-	"password": "kata-sandi",
-	"password_confirmation": "kata-sandi"
-}
-```
+Base path `/api/v1`. Semua route selain register/login mewajibkan `Authorization: Bearer <accessToken>`. Token HS256 berlaku 7 hari. Error berbentuk `{ "error": { "code": "...", "message": "..." } }`.
 
-Response `201 Created` berisi `user` dan `accessToken`:
+| Method | Path | Perilaku |
+| --- | --- | --- |
+| `POST` | `/auth/register` | Buat akun; response `201`, user dan accessToken |
+| `POST` | `/auth/login` | Login; kredensial salah `401 INVALID_CREDENTIALS` |
+| `GET` | `/auth/me` | Ambil user token aktif |
+| `PATCH` | `/auth/profile` | Ubah nama/email/avatar (multipart) |
+| `GET` | `/users?search=...` | Cari maksimal 50 user lain dengan ILIKE |
+| `GET` | `/conversations` | Daftar chat, optional `filter`, `search`, `limit` |
+| `POST` | `/conversations` | Buat direct/group chat |
+| `PATCH` | `/conversations/:id` | Favorit; atau detail/foto grup |
+| `DELETE` | `/conversations/:id` | Sembunyikan hanya untuk pengguna aktif |
+| `DELETE` | `/conversations/:id/messages` | Bersihkan tampilan riwayat dan unread pengguna aktif |
+| `GET` | `/conversations/:conversation_id/messages` | Riwayat; `limit`, `before`, `search` |
+| `POST` | `/conversations/:conversation_id/messages` | Kirim teks/lampiran |
+| `POST` | `/conversations/:id/read` | Simpan `lastReadMessageId` |
+| `POST` | `/conversations/:conversation_id/participants` | Tambah anggota grup menggunakan `userId` |
+| `DELETE` | `/conversations/:conversation_id/participants/:id` | Keluarkan anggota grup |
 
-```json
-{
-	"user": {
-		"id": "<uuid>",
-		"name": "Ayu",
-		"email": "ayu@example.com"
-	},
-	"accessToken": "<jwt>"
-}
-```
+Daftar chat default maksimum 30, maksimum 100; `nextCursor` saat ini selalu `null`. Daftar pesan default 50, maksimum 100, dan mendukung cursor `before`. Jenis chat `direct` mensyaratkan dua peserta total; direct chat yang sudah ada dipakai kembali. Grup baru harus memiliki minimal tiga anggota total; penghapusan anggota ditolak bila grup akan tersisa kurang dari dua anggota.
 
-Email dinormalisasi menjadi huruf kecil dan tanpa spasi di awal/akhir. Nama maksimal 100 karakter.
+Pesan maksimal 5000 karakter dan harus berisi teks atau lampiran. `clientMessageId` (atau header `Idempotency-Key`) wajib dan unik dalam conversation; retry dengan ID sama mengembalikan pesan lama. Maksimal 5 lampiran, 20 MB per file; tipe JPEG/PNG/WebP/GIF, MP4/WebM, PDF, atau teks biasa. Avatar user/grup hanya JPEG/PNG/WebP sampai 5 MB. Deskripsi grup maksimal 2500 karakter.
 
-### Login
+## Realtime, CORS, dan Penyimpanan
 
-`POST /auth/login`
+Action Cable berada di `/cable`; JWT dikirim sebagai query `token`. Channel: `ChatChannel` untuk pesan/read event anggota percakapan, `UserChannel` untuk update daftar per pengguna, dan `PresenceChannel` untuk broadcast kehadiran. Frontend saat ini menggunakan dua channel pertama, bukan presence. Development memakai adapter `async` (satu proses); production memakai `solid_cable` dan database cable. Siapkan database solid cache/queue/cable melalui tugas Rails saat deployment.
 
-```json
-{
-	"email": "ayu@example.com",
-	"password": "kata-sandi"
-}
-```
+CORS mengizinkan hanya `http://localhost:3000`. Sesuaikan `config/initializers/cors.rb` dan allowed origins Action Cable untuk domain frontend lain. Development Active Storage memakai disk lokal; backup `storage/` bersama database bila file penting. Metadata database tanpa berkas disk yang cocok tidak cukup untuk memulihkan attachment.
 
-Response sukses berisi bentuk `user` dan `accessToken` yang sama dengan register. Kredensial salah menghasilkan `401` dengan kode `INVALID_CREDENTIALS`.
+## Keamanan dan Batasan
 
-### Pengguna saat ini
-
-`GET /auth/me`
-
-Response:
-
-```json
-{
-	"user": {
-		"id": "<uuid>",
-		"name": "Ayu",
-		"email": "ayu@example.com"
-	}
-}
-```
-
-### Pencarian kontak
-
-`GET /users?search={nama-atau-email}` mengembalikan maksimal 50 user selain pengguna yang sedang login. Pencarian memakai PostgreSQL `ILIKE`.
-
-### Ubah profil
-
-`PATCH /auth/profile` menerima `name` dan `email` melalui multipart form. Field `avatar` opsional menerima JPEG, PNG, atau WebP sampai 5 MB. Attachment menggunakan Active Storage: blob dan metadata tersimpan di PostgreSQL, sementara file disimpan memakai service lokal pada development. URL foto dikembalikan sebagai `avatarUrl`.
-
-## Percakapan
-
-### Daftar percakapan
-
-`GET /conversations`
-
-Query opsional:
-
-| Parameter | Keterangan |
-| --- | --- |
-| `filter` | `all` (default), `unread`, atau `favorite` |
-| `search` | Mencari judul percakapan atau nama peserta lain |
-| `limit` | Jumlah hasil, default `30`, maksimum `100` |
-
-Response berisi `items` dan `nextCursor`. Saat ini `nextCursor` selalu `null`, sehingga endpoint ini belum menyediakan pagination cursor. Objek percakapan mencakup `id`, `kind`, `title`, `avatarUrl`, `participantCount`, `isFavorite`, `unreadCount`, dan `lastMessage`.
-
-Filter favorit/unread dibatasi lewat PostgreSQL. Pencarian judul memeriksa hasil percakapan milik user; riwayat yang sudah dibersihkan untuk satu participant tidak ditampilkan untuk akun tersebut, sementara peserta lain tetap melihat pesan.
-
-### Membuat percakapan
-
-`POST /conversations` menerima `kind` dan `participantIds`. Untuk `direct`, kirim UUID user tujuan; user login otomatis ditambahkan. Conversation dan participant disimpan dalam transaksi PostgreSQL. Direct conversation yang sudah ada akan dikembalikan agar tidak terduplikasi; event `conversation.created` dikirim ke Action Cable tiap peserta.
-
-### Mengubah favorit
-
-`PATCH /conversations/:id`
-
-```json
-{
-	"isFavorite": true
-}
-```
-
-Response berupa objek percakapan yang diperbarui. Pengguna harus menjadi peserta percakapan.
-
-`DELETE /conversations/:id` menyembunyikan percakapan hanya bagi participant yang login. Pesan baru dapat memunculkannya kembali. `DELETE /conversations/:id/messages` membersihkan riwayat dan unread state hanya untuk participant tersebut, tanpa menghapus pesan dari peserta lain.
-
-### Search dalam chat
-
-`GET /conversations/:conversation_id/messages?search={teks}` mencari teks pesan dengan PostgreSQL `ILIKE`, hanya dalam conversation dan riwayat yang terlihat bagi user.
-
-### Menandai pesan sudah dibaca
-
-`POST /conversations/:id/read`
-
-```json
-{
-	"lastReadMessageId": "<uuid-pesan>"
-}
-```
-
-Pesan harus berada dalam percakapan tersebut. Response sukses memuat `success`, `conversationId`, dan `lastReadMessageId`. Event `conversation.read` juga dikirim melalui Action Cable.
-
-## Pesan
-
-### Mengambil pesan
-
-`GET /conversations/:conversation_id/messages`
-
-Query opsional `limit` default `50` dengan maksimum `100`, `before` berisi ID pesan untuk mengambil pesan lama, dan `search` untuk mencari teks.
-
-Response berbentuk `{ "items": [...], "nextCursor": "<uuid-atau-null>" }`. Item memuat `id`, `conversationId`, `senderId`, `text`, `createdAt`, dan `status` (`sent`). Pesan pada tiap halaman dikembalikan dari yang lebih lama ke yang lebih baru.
-
-### Mengirim pesan
-
-`POST /conversations/:conversation_id/messages`
-
-```json
-{
-	"clientMessageId": "client-generated-unique-id",
-	"text": "Halo!"
-}
-```
-
-`clientMessageId` wajib diisi dan unik dalam satu percakapan. Sebagai alternatif, ID dapat dikirim melalui header `Idempotency-Key`. Mengirim ulang ID yang sama mengembalikan pesan yang sudah dibuat tanpa membuat duplikat. Teks maksimum 5000 karakter; pesan boleh hanya berisi lampiran.
-
-Request menerima JSON untuk pesan teks atau multipart form dengan field `clientMessageId`, `text`, dan `attachments[]`. Maksimal 5 file dari client, ukuran server 20 MB per file, tipe yang diterima JPEG/PNG/WebP/GIF, MP4/WebM, PDF, dan teks biasa. Gambar/video dapat dipreview client; file lain dikembalikan sebagai tautan unduh. Blob disimpan melalui Active Storage dan metadata di PostgreSQL.
-
-Response sukses pertama kali adalah `201 Created`, dengan objek pesan. Pesan baru juga memancarkan event Action Cable `message.created`.
-
-## Action Cable
-
-WebSocket tersedia di `/cable`. Kirim JWT sebagai query parameter `token`, misalnya `ws://localhost:3000/cable?token=<accessToken>`. Koneksi tanpa token valid ditolak.
-
-Setelah terhubung, subscribe ke channel percakapan dengan identifier:
-
-```json
-{
-	"channel": "ChatChannel",
-	"conversation_id": "<uuid-percakapan>"
-}
-```
-
-Hanya anggota percakapan yang dapat subscribe. Channel mengirim payload `message.created` dan `conversation.read` untuk event terkait. `PresenceChannel` mengirim event `presence.changed` dengan `userId` dan `online` saat subscribe/unsubscribe. Adapter Action Cable mengikuti konfigurasi environment (`async` pada development); untuk penggunaan multi-proses/produksi, pastikan adapter dan database cable sudah dikonfigurasi sesuai deployment.
-
-## CORS
-
-Konfigurasi saat ini hanya mengizinkan origin `http://localhost:3000`. Untuk frontend di origin lain, ubah `config/initializers/cors.rb` dan restart server. Hindari mengizinkan semua origin di lingkungan produksi tanpa pertimbangan keamanan.
+Jangan commit `config/master.key`, secret JWT plaintext, password database, `.env.local`, atau file upload. JWT browser saat ini disimpan di `sessionStorage`; XSS pada origin aplikasi dapat membaca token. Gunakan HTTPS, secret kuat, pembatasan akses jaringan, dan storage produksi yang sesuai. Jangan buka PostgreSQL ke internet untuk koneksi TablePlus; gunakan localhost, SSH tunnel, atau VPN. Aplikasi belum memiliki rate limiting, E2E encryption, sinkronisasi presence/typing di frontend, panggilan suara/video, dan read receipt yang ditampilkan.
