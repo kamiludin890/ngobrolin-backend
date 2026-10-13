@@ -13,15 +13,21 @@ API chat berbasis Ruby on Rails API-only, PostgreSQL, JWT, Active Storage, dan A
 ## Setup Lokal
 
 1. Pastikan service PostgreSQL berjalan dan siapkan role/database untuk development. Dengan konfigurasi bawaan Rails memakai user OS lewat Unix socket. Untuk koneksi TCP/TablePlus, lihat bagian [Koneksi TablePlus](#koneksi-tableplus).
-2. Dari `backend`, instal gem: `bundle install`.
-3. Atur secret JWT melalui Rails credentials. Jalankan `bin/rails credentials:edit`, lalu pastikan ada nilai:
+2. Dari direktori `ngobrolin-backend`, instal gem: `bundle install`.
+3. Buat credential lokal baru dan atur secret JWT. File credential terenkripsi dan master key tidak disimpan di Git. Pada setup awal, jalankan:
+
+   ```sh
+   bin/rails credentials:edit
+   ```
+
+   Jika file credential belum ada, Rails akan membuat `config/credentials.yml.enc` dan `config/master.key`. Buat secret JWT baru dengan `bin/rails secret`, lalu masukkan hasilnya di editor:
 
    ```yaml
    jwt:
-     secret: gunakan-random-secret-yang-panjang
+     secret: tempel-hasil-bin-rails-secret-di-sini
    ```
 
-   Credentials terenkripsi memerlukan `config/master.key` lokal atau `RAILS_MASTER_KEY`. Jangan commit key/master secret.
+   Simpan `config/master.key` di tempat aman; jika hilang, credential terenkripsi tidak dapat dibuka lagi. Untuk development, Rails menggunakan file key lokal tersebut. Untuk deployment, simpan key sebagai secret `RAILS_MASTER_KEY`. Jangan salin key/secret dari mesin lain atau commit file `config/credentials*.yml.enc`, `config/credentials/`, ataupun key.
 4. Siapkan schema: `bin/rails db:prepare`.
 5. Jalankan API di port `3001`: `PORT=3001 bin/rails server`.
 6. Di terminal lain, jalankan frontend pada port `3000`. CORS dan Action Cable development mengizinkan origin `http://localhost:3000`.
@@ -97,4 +103,4 @@ CORS mengizinkan hanya `http://localhost:3000`. Sesuaikan `config/initializers/c
 
 ## Keamanan dan Batasan
 
-Jangan commit `config/master.key`, secret JWT plaintext, password database, `.env.local`, atau file upload. JWT browser saat ini disimpan di `sessionStorage`; XSS pada origin aplikasi dapat membaca token. Gunakan HTTPS, secret kuat, pembatasan akses jaringan, dan storage produksi yang sesuai. Jangan buka PostgreSQL ke internet untuk koneksi TablePlus; gunakan localhost, SSH tunnel, atau VPN. Aplikasi belum memiliki rate limiting, E2E encryption, sinkronisasi presence/typing di frontend, panggilan suara/video, dan read receipt yang ditampilkan.
+Jangan commit file credentials terenkripsi (`config/credentials.yml.enc` atau `config/credentials/*.yml.enc`), key (`config/master.key` atau `config/credentials/*.key`), secret JWT plaintext, password database, `.env.local`, atau file upload. JWT browser saat ini disimpan di `sessionStorage`; XSS pada origin aplikasi dapat membaca token. Gunakan HTTPS, secret kuat, pembatasan akses jaringan, dan storage produksi yang sesuai. Jangan buka PostgreSQL ke internet untuk koneksi TablePlus; gunakan localhost, SSH tunnel, atau VPN. Aplikasi belum memiliki rate limiting, E2E encryption, sinkronisasi presence/typing di frontend, panggilan suara/video, dan read receipt yang ditampilkan.
